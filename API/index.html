@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flugliste mit Wetter</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+
+<div class="container">
+    <h1 id="heading">Flüge ab Wien</h1>
+    <div class="form-group">
+        <label for="airport-select">Wählen Sie einen Flughafen:</label>
+        <select id="airport-select" class="form-control">
+            <option value="VIE">Wien</option>
+            <option value="SZG">Salzburg</option>
+            <option value="INN">Innsbruck</option>
+            <option value="GRZ">Graz</option>
+            <option value="LNZ">Linz</option>
+            <option value="KLU">Klagenfurt</option>
+        </select>
+    </div>
+    <ul id="flight-list" class="list-group">
+        <!-- Flugdaten werden hier eingefügt -->
+    </ul>
+</div>
+
+<!-- Bootstrap JS (optional) -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+<!-- Font Awesome -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/js/all.min.js"></script>
+<script>
+    // Access Token für die API-Authentifizierung
+    const accessToken = 'ngej677w92zxb47ju69az2gv';
+
+    // Funktion zur Rückgabe des aktuellen Datums und der Zeit im ISO-Format
+    function getCurrentDateTime() {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        const hours = String(today.getHours()).padStart(2, '0');
+        const minutes = String(today.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+
+    // Aktuelle Datum und Zeit für die API-Anfrage
+    const currentDateTime = getCurrentDateTime();
+
+    // Asynchrone Funktion zum Abrufen der Flugdaten basierend auf dem Flughafen-Code
+    async function fetchFlightData(airportCode) {
+        const apiUrl = `https://api.lufthansa.com/v1/operations/customerflightinformation/departures/${airportCode}/${currentDateTime}`;
+        try {
+            const response = await fetch(apiUrl, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            });
+            const data = await response.json();
+            console.log(data);
+            return data;
+        } catch (error) {
+            console.error('Fehler beim Abrufen der Flugdaten:', error);
+            throw new Error('Serverfehler');
+        }
+    }
+
+    // Funktion zur Übersetzung des IATA-Codes in den Stadtnamen
+    function translateAirportCodeToCity(iataCode) {
+        const translatorApiKey = 'fAY8vlvoiEiWPLT91JKOr1OukYcVpanLM6Jc32UY';
+        const translatorUrl = `https://api.api-ninjas.com/v1/airports?iata=${iataCode}`;
+
+        return $.ajax({
+            method: 'GET',
+            url: translatorUrl,
+            headers: { 'X-Api-Key': translatorApiKey },
+            contentType: 'application/json'
+        }).done(function(result) {
+            console.log(result);
+        }).fail(function(jqXHR) {
+            console.error('Fehler: ', jqXHR.responseText);
+        });
+    }
+
+    // Funktion zum Anzeigen der Flugdaten in der HTML-Liste
+    function displayFlights(flightData, airportName) {
+        const flightList = document.getElementById('flight-list');
+        flightList.innerHTML = '';
+
+        let flightInfo = flightData.FlightInformation.Flights.Flight;
+        if (!flightInfo || flightInfo.length === 0) {
+            const noFlightsElement = document.createElement('li');
+            noFlightsElement.className = 'list-group-item';
+            noFlightsElement.textContent = `Aktuell keine Flüge vom Flughafen ${airportName}`;
+            flightList.appendChild(noFlightsElement);
+            return;
+        }
+
+        console.log(flightInfo);
+
+        flightInfo.forEach(async flight => {
+            const {Departure, Arrival, OperatingCarrier, Equipment, Status} = flight;
+            const flightElement = document.createElement('li');
+            flightElement.className = 'list-group-item';
+
+            const departureCityPromise = translateAirportCodeToCity(Departure.AirportCode);
+            const arrivalCityPromise = translateAirportCodeToCity(Arrival.AirportCode);
+
+            const [departureCity, arrivalCity] = await Promise.all([departureCityPromise, arrivalCityPromise]);
+
+            flightElement.innerHTML = `
+                <div class="row">
+                    <div class="col-sm-3">Flug: ${OperatingCarrier.AirlineID}${OperatingCarrier.FlightNumber}</div>
+                    <div class="col-sm-3">Datum: ${Departure.Scheduled.Date}</div>
+                    <div class="col-sm-3">Abflugzeit: ${Departure.Scheduled.Time} (${departureCity[0].city})</div>
+                    <div class="col-sm-3">Ankunftszeit: ${Arrival.Scheduled.Time} (${arrivalCity[0].city})</div>
+                    <div class="col-sm-3">Status: ${Departure.Status.Description}</div>
+                </div>
+            `;
+
+            flightElement.onclick = async () => {
+                const departureCityResponse = await departureCityPromise;
+                const arrivalCityResponse = await arrivalCityPromise;
+
+                const departureCity = departureCityResponse[0].city;
+                const arrivalCity = arrivalCityResponse[0].city;
+
+                console.log('Abflugstadt:', departureCity);
+                console.log('Ankunftsstadt:', arrivalCity);
+
+                const flightDetails = {
+                    ...flight,
+                    departureCity,
+                    arrivalCity
+                };
+                sessionStorage.setItem('flightDetails', JSON.stringify(flightDetails));
+                console.log('Flugdetails gespeichert:', flightDetails);
+                window.location.href = 'details.html';
+            };
+            flightList.appendChild(flightElement);
+        });
+    }
+
+    // Initialisierungsfunktion, die beim Laden der Seite ausgeführt wird
+    async function init() {
+        const airportSelect = document.getElementById('airport-select');
+        const selectedAirportCode = airportSelect.value;
+        const selectedAirportName = airportSelect.options[airportSelect.selectedIndex].text;
+
+        try {
+            const flights = await fetchFlightData(selectedAirportCode);
+            const heading = document.getElementById('heading');
+            heading.textContent = `Flüge ab ${selectedAirportName} am ${currentDateTime}`;
+
+            if (!flights || !flights.FlightInformation || !flights.FlightInformation.Flights || flights.FlightInformation.Flights.Flight.length === 0) {
+                const flightList = document.getElementById('flight-list');
+                flightList.innerHTML = '';
+                const noFlightsElement = document.createElement('li');
+                noFlightsElement.className = 'list-group-item';
+                noFlightsElement.textContent = `Aktuell keine Flüge vom Flughafen ${selectedAirportName}`;
+                flightList.appendChild(noFlightsElement);
+            } else {
+                displayFlights(flights, selectedAirportName);
+            }
+        } catch (error) {
+            const flightList = document.getElementById('flight-list');
+            flightList.innerHTML = '';
+            const errorElement = document.createElement('li');
+            errorElement.className = 'list-group-item';
+            errorElement.textContent = 'Serverfehler. Bitte erneut laden.';
+            flightList.appendChild(errorElement);
+        }
+
+        airportSelect.addEventListener('change', async (event) => {
+            const airportCode = event.target.value;
+            const airportName = event.target.options[event.target.selectedIndex].text;
+            try {
+                const flights = await fetchFlightData(airportCode);
+                const heading = document.getElementById('heading');
+                heading.textContent = `Flüge ab ${airportName} am ${currentDateTime}`;
+
+                if (!flights || !flights.FlightInformation || !flights.FlightInformation.Flights || flights.FlightInformation.Flights.Flight.length === 0) {
+                    const flightList = document.getElementById('flight-list');
+                    flightList.innerHTML = '';
+                    const noFlightsElement = document.createElement('li');
+                    noFlightsElement.className = 'list-group-item';
+                    noFlightsElement.textContent = `Aktuell keine Flüge vom Flughafen ${airportName}`;
+                    flightList.appendChild(noFlightsElement);
+                } else {
+                    displayFlights(flights, airportName);
+                }
+            } catch (error) {
+                const flightList = document.getElementById('flight-list');
+                flightList.innerHTML = '';
+                const errorElement = document.createElement('li');
+                errorElement.className = 'list-group-item';
+                errorElement.textContent = 'Serverfehler. Bitte erneut laden.';
+                flightList.appendChild(errorElement);
+            }
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
